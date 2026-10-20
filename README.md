@@ -30,7 +30,7 @@ An agent skill for Claude Code, Codex, GitHub Copilot CLI, Amp, OpenCode and any
 |---|---|---|
 | **I have scanner output** (npm audit, pip-audit, Trivy, Grype) | Save it to a file, then ask your agent *"/vuln-fix-first audit.json"* | The bugs to fix today, with deadlines, and the upgrades that clear the most |
 | **I have a list of CVE IDs** | `python scripts/vuln_fix_first.py CVE-2024-3400 CVE-2021-44228` | The same ranking, no AI needed |
-| **I want it in CI or a script** | Add `--json` | Every field, machine-readable |
+| **I want it in CI or a script** | Add `--json`, or `--format sarif --fail-on ACT` | Every field, machine-readable; alerts in GitHub and a failed build when something must be fixed now ([example](docs/ci-example.yml)) |
 | **My team can only do a few upgrades** | Add `--capacity 3` | The 3 upgrades that matter most, and how much risk they remove |
 | **I use the Claude app** | Upload the zip from [Releases](https://github.com/kelsonbrito50/vuln-fix-first/releases) | The skill inside Claude on the web or desktop |
 
@@ -117,6 +117,10 @@ Most of those bugs are never used in a real attack. The urgent ones are those at
 | **SSVC** | CISA's decision rules. They turn the facts above into a clear action (ACT, ATTEND, TRACK\*, TRACK). |
 | **PoC** | "Proof of concept": public code that shows how to attack the bug. Attackers can copy it. |
 | **Exposed** | Anyone on the internet can reach the system, like a public website or API. |
+| **Cache** | Copies of downloaded data kept on your disk, so the next run is faster and can work offline. |
+| **CI** | "Continuous integration": a service, like GitHub Actions, that checks your project every time you push code. |
+| **SARIF** | A standard file format for security findings. GitHub reads it and shows each bug as an alert in the **Security** tab. |
+| **Exit code** | A number a command returns when it ends. `0` means "all fine"; anything else makes a CI step fail. |
 
 ## Example
 
@@ -186,6 +190,11 @@ npm audit --json | python scripts/vuln_fix_first.py
 python scripts/vuln_fix_first.py CVE-2024-3400 GHSA-jfh8-c2jp-5v3q --json
 ```
 
+**As a command:** `pip install .` inside the cloned folder adds a `vuln-fix-first` command that takes the same options. It installs nothing else.
+```
+vuln-fix-first -f audit.json --format sarif --fail-on ACT > results.sarif
+```
+
 | Option | What it means |
 |---|---|
 | `-f FILE` | Read a scanner report from a file. Any format works. |
@@ -193,7 +202,13 @@ python scripts/vuln_fix_first.py CVE-2024-3400 GHSA-jfh8-c2jp-5v3q --json
 | `-x`, `--exposed` | The internet can reach the system. Deadlines get shorter. |
 | `-c`, `--capacity N` | How many package upgrades your team can do now. Shows only the N that matter most, and how many CVEs they clear. |
 | `-i`, `--ignore FILE` | Bugs you decided to live with for now ("accepted risk"). One line each: `CVE-2022-24999 2027-01-31 internal only, behind VPN`. They are skipped until that date, then ranked again. Lines starting with `#` are comments. |
-| `--json` | Print machine-readable JSON instead of a table. |
+| `--json` | Print machine-readable JSON instead of a table. Each row also says which KEV version (`kev_version`) and EPSS date (`epss_date`) it used. |
+| `--format text\|json\|sarif` | `text` is the table (default). `json` is the same as `--json`. `sarif` is for GitHub Code Scanning: every CVE becomes an alert on the scanned file, with the severity set by the label (ACT shows as critical), not by CVSS. |
+| `--fail-on ACT\|ATTEND` | For CI: end with exit code 1 if any bug is labeled at that level or higher. `--fail-on ATTEND` fails on ATTEND and ACT. |
+| `--no-cache` | Download everything again, and don't read or save the cache. |
+| `--offline` | Use only the cache, with no network at all, and warn how old the data is. EPSS is not cached, so offline runs rank without it. |
+
+**Cache.** The script keeps the KEV list for 24 hours, each CVE record for 7 days, and each GHSA-to-CVE answer for 30 days, as JSON files in `~/.cache/vuln-fix-first/` (or `$XDG_CACHE_HOME/vuln-fix-first/` if that variable is set). A second run on the same report takes a fraction of a second. Delete the folder to clear it. Failed downloads are never cached, and busy or slow servers get 3 tries, 1 and 2 seconds apart.
 
 ## How it decides
 
@@ -229,7 +244,7 @@ Only bug IDs. Your scanner report, source code, package names, versions and file
 | `cveawg.mitre.org` | One CVE ID per request. |
 | `api.osv.dev` | One GHSA ID per request, only when the input has GHSA IDs. |
 
-No API key, no account, no telemetry. The connections use HTTPS, and the script makes no other network calls.
+No API key, no account, no telemetry. The connections use HTTPS, and the script makes no other network calls. What it downloads is cached on your disk only (see **Cache** above).
 
 ## FAQ
 
@@ -237,7 +252,10 @@ No API key, no account, no telemetry. The connections use HTTPS, and the script 
 CVSS measures how bad an attack *would* be. It doesn't say whether anyone attacks that bug. If a bug isn't on KEV, has no public attack code and the system isn't critical, CISA's rules say it can wait for your normal update schedule.
 
 **Does it work offline?**
-No. The ranking depends on today's KEV list and EPSS scores, which change every day. Without KEV the script stops, because it would hide bugs that are being attacked. Without EPSS it warns and goes on.
+Yes, with `--offline`, once a normal run has filled the cache. It warns how old the cached data is, because the KEV list and EPSS scores change every day. EPSS isn't cached, so offline runs rank without it. Without a cached KEV list the script stops, because it would hide bugs that are being attacked.
+
+**How do I use it in GitHub Actions?**
+Copy [docs/ci-example.yml](docs/ci-example.yml) to `.github/workflows/` in your project. It runs `npm audit`, uploads the ranking to the **Security** tab as SARIF, and fails the build when a bug is labeled ACT.
 
 **Why is a bug marked "assumed"?**
 CISA hasn't rated it yet. For "automatable" and "impact" the tool then assumes the worst case, so the bug may rank higher than it should. For "exploitation" it assumes `none` unless the bug is on KEV, because KEV already lists the bugs known to be attacked.
@@ -250,19 +268,20 @@ Any of them. The script pulls CVE and GHSA IDs out of any text, so the format do
 
 ## Evidence and limits
 
-- **Tested** with 20 unit tests (Python 3.9 and 3.13 in CI), and live runs on `npm audit` and `pip-audit` output, a CVE list, UTF-16 files from Windows PowerShell, and `--json`.
+- **Tested** with 42 unit tests (Python 3.9 and 3.13 in CI) that never touch the network. They include real `npm audit`, `pip-audit`, Trivy and Grype output, every row of both CISA tables checked against the official CERT/CC files, and failure cases (KEV or EPSS down, unknown CVE, UTF-16 files). CI also runs `mypy --strict` and `ruff`.
 - A CVE ID that doesn't exist is still listed, as TRACK with every value "assumed", plus a warning.
 - Some CVE records have no product or package name, so the product column can be blank or "(unknown product)".
 - The label and the deadline come from two different CISA tables, so they can disagree, for example TRACK with a 60-day deadline. Both are shown on purpose.
-- GHSA IDs with no matching CVE are skipped.
+- GHSA IDs with no matching CVE are skipped, with a warning.
 
 ## Tests
 ```
 python tests/test_vuln_fix_first.py
 ```
+For the type and style checks, install the dev tools once (`pip install ".[dev]"`), then run `python -m mypy --strict` and `python -m ruff check .`.
 
 ## Data sources and attribution
-The script downloads live data from these 4 sites each time it runs:
+The script downloads live data from these 4 sites, unless a fresh copy is in its cache:
 
 | Source | Site | Used for |
 |---|---|---|

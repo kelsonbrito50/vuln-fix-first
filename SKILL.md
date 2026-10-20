@@ -33,7 +33,10 @@ Turn a long vulnerability list into a short "fix today / fix soon / can wait" li
    python <skill-dir>/scripts/vuln_fix_first.py CVE-2024-3400 GHSA-jfh8-c2jp-5v3q
    ```
    The script needs internet access to `www.cisa.gov`, `api.first.org`, `cveawg.mitre.org` and `api.osv.dev`. If the sandbox blocks them, tell the user which domains to allow.
-   Add `--json` when you need the fields for further work.
+   Add `--json` when you need the fields for further work. Each JSON row also has `kev_version` and `epss_date`: quote them when the user asks how fresh the data is.
+   - Downloads are cached (KEV 24 hours, CVE records 7 days, GHSA lookups 30 days), so a second run is fast. Add `--no-cache` if the user wants fresh data now.
+   - If the sandbox has no internet but an earlier run filled the cache, add `--offline`. Tell the user how old the data is (the script warns) and that EPSS is missing offline.
+   - For CI, use `--format sarif` (GitHub Code Scanning) and `--fail-on ACT` or `--fail-on ATTEND` (exit code 1 when a bug is at that level or higher). Point the user to `docs/ci-example.yml`.
    - If the user says how many upgrades they can do now, add `--capacity N`.
    - If the user has bugs they chose to accept for now, write them to a file, one `CVE-ID YYYY-MM-DD reason` per line, and pass `--ignore FILE`. Each entry is skipped until its date, then ranked again with a warning.
 4. **Report to the user:**
@@ -51,5 +54,5 @@ Turn a long vulnerability list into a short "fix today / fix soon / can wait" li
 - Within the same decision, KEV CVEs come first, then those used by ransomware, then higher EPSS.
 - The decision and the deadline come from two different CISA tables, so a TRACK item can still have a 60-day deadline. Report both.
 - High CVSS alone doesn't make a CVE urgent. Explain this when the user asks why a 9.8 is only TRACK.
-- `npm audit` reports GHSA IDs. The script resolves them to CVEs through OSV.dev. GHSAs with no CVE are skipped, so mention them to the user.
-- If EPSS or a CVE record can't be fetched, the script warns on stderr and goes on. Tell the user which data was missing. If KEV can't be fetched, the script stops, because the ranking would be wrong without it.
+- `npm audit` reports GHSA IDs. The script resolves them to CVEs through OSV.dev. GHSAs with no CVE are skipped with a warning, so mention them to the user.
+- If EPSS or a CVE record can't be fetched, the script warns on stderr and goes on. Tell the user which data was missing. If KEV can't be fetched (or, with `--offline`, isn't cached), the script stops, because the ranking would be wrong without it.
