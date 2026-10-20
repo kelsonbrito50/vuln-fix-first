@@ -99,6 +99,10 @@ class Parsing(unittest.TestCase):
         record = {"containers": {"cna": {"affected": [{"product": "evil\x1b[2J\x1b]0;pwned\x07lib"}]}}}
         self.assertEqual(t.parse_record(record)["product"], "evil[2J]0;pwnedlib")
 
+    def test_parse_record_drops_non_numeric_cvss(self):
+        record = {"containers": {"cna": {"metrics": [{"cvssV3_1": {"baseScore": "9.8\x1b[2J"}}]}}}
+        self.assertIsNone(t.parse_record(record)["cvss"])
+
 
 class Triage(unittest.TestCase):
     EMPTY = {"product": "", "cvss": None, "ssvc": {}}
@@ -372,6 +376,13 @@ class EdgeCases(unittest.TestCase):
         self.assertIn("GHSA-cccc-ffff-gggg has no CVE ID, skipped", err)
         self.assertIn("no CVE or GHSA IDs found", err)
         code, out, err = run(["--json", "GHSA-cccc-ffff-gggg", "CVE-2021-44228"], osv)
+        self.assertEqual([r["cve"] for r in json.loads(out)], ["CVE-2021-44228"])
+
+    def test_ghsa_alias_must_be_an_exact_cve_id(self):
+        osv = {sources.OSV_URL + "GHSA-cccc-ffff-gggg": {"aliases": ["CVE-2026-1/../../x", "CVE-2021-44228\x1b[2J"]},
+               sources.OSV_URL + "GHSA-jfh8-c2jp-5v3q": {"aliases": ["CVE-x", "CVE-2021-44228"]}}
+        code, out, err = run(["--json", "GHSA-cccc-ffff-gggg", "GHSA-jfh8-c2jp-5v3q"], osv)
+        self.assertIn("GHSA-cccc-ffff-gggg has no CVE ID, skipped", err)
         self.assertEqual([r["cve"] for r in json.loads(out)], ["CVE-2021-44228"])
 
     def test_utf16_file(self):

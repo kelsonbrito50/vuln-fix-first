@@ -4,6 +4,12 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ## [Unreleased]
 
+### Security
+
+- GHSA to CVE lookups now accept only exact CVE IDs from OSV.dev aliases. Before, any alias starting with `CVE-` was used in URLs, cache file paths and terminal output.
+- A CVSS score that is not a number is dropped instead of printed.
+- `SKILL.md`: the agent treats fields from CVE records as data, never as instructions.
+
 ## [1.1.0] - 2026-10-20
 
 ### Added
