@@ -10,6 +10,44 @@ from unittest import mock
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 import vuln_fix_first as t  # noqa: E402
+from vuln_fix_first import sources  # noqa: E402
+
+
+def no_network(request, *args, **kwargs):
+    raise AssertionError(f"test tried to reach the network: {getattr(request, 'full_url', request)}")
+
+
+def setUpModule():
+    """No test may reach the network or the user's real cache."""
+    global _tmp, _patches
+    import tempfile
+    _tmp = tempfile.TemporaryDirectory()
+    _patches = [mock.patch("urllib.request.urlopen", no_network),
+                mock.patch.dict("os.environ", {"XDG_CACHE_HOME": _tmp.name}),
+                mock.patch("time.sleep")]
+    for p in _patches:
+        p.start()
+
+
+def tearDownModule():
+    for p in _patches:
+        p.stop()
+    _tmp.cleanup()
+
+
+def fake_net(routes):
+    """urlopen stand-in: the first route whose URL prefix matches answers with its JSON, or raises it."""
+    calls = []
+
+    def urlopen(request, *args, **kwargs):
+        calls.append(request.full_url)
+        for prefix, answer in routes.items():
+            if request.full_url.startswith(prefix):
+                if isinstance(answer, Exception):
+                    raise answer
+                return io.BytesIO(json.dumps(answer).encode())
+        raise http_error(404)
+    return mock.patch("urllib.request.urlopen", urlopen), calls
 
 
 class DecisionTable(unittest.TestCase):
@@ -169,6 +207,64 @@ class Retry(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError):
                 t.get_json("https://example.test")
         self.assertEqual((urlopen.call_count, sleep.call_count), (1, 0))
+
+
+class Cache(unittest.TestCase):
+    KEV = {"catalogVersion": "2026.10.17", "vulnerabilities": [{"cveID": "CVE-2021-44228"}]}
+
+    def setUp(self):
+        import shutil
+        shutil.rmtree(sources.cache_dir(), ignore_errors=True)
+        self.addCleanup(setattr, sources, "mode", "online")
+
+    def test_second_call_uses_cache(self):
+        patch, calls = fake_net({sources.KEV_URL: self.KEV})
+        with patch:
+            self.assertEqual(t.fetch_kev(), t.fetch_kev())
+        self.assertEqual(len(calls), 1)
+        self.assertTrue((sources.cache_dir() / "kev.json").exists())
+
+    def test_expired_entry_is_downloaded_again(self):
+        patch, calls = fake_net({sources.KEV_URL: self.KEV})
+        with patch:
+            t.fetch_kev()
+            with mock.patch("time.time", return_value=__import__("time").time() + sources.KEV_TTL + 1):
+                t.fetch_kev()
+        self.assertEqual(len(calls), 2)
+
+    def test_no_cache_neither_reads_nor_writes(self):
+        sources.mode = "no-cache"
+        patch, calls = fake_net({sources.KEV_URL: self.KEV})
+        with patch:
+            t.fetch_kev()
+            t.fetch_kev()
+        self.assertEqual(len(calls), 2)
+        self.assertFalse((sources.cache_dir() / "kev.json").exists())
+
+    def test_offline_uses_stale_cache_and_never_the_network(self):
+        patch, _ = fake_net({sources.KEV_URL: self.KEV})
+        with patch:
+            t.fetch_kev()
+        sources.mode = "offline"
+        with mock.patch("time.time", return_value=__import__("time").time() + 3 * sources.DAY):
+            self.assertIn("CVE-2021-44228", t.fetch_kev())
+        self.assertGreater(sources.ages["kev"], 2 * sources.DAY)
+        with self.assertRaises(LookupError):
+            t.get_json(sources.EPSS_URL + "CVE-2021-44228")
+
+    def test_offline_without_cache_fails(self):
+        sources.mode = "offline"
+        with self.assertRaises(LookupError):
+            t.fetch_kev()
+
+    def test_damaged_cache_file_is_ignored(self):
+        path = sources.cache_dir() / "kev.json"
+        path.parent.mkdir(parents=True)
+        path.write_text("{not json")
+        patch, calls = fake_net({sources.KEV_URL: self.KEV})
+        with patch:
+            self.assertIn("CVE-2021-44228", t.fetch_kev())
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

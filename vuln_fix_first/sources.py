@@ -2,18 +2,64 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 EPSS_URL = "https://api.first.org/data/v1/epss?cve="
 CVE_URL = "https://cveawg.mitre.org/api/cve/"
 OSV_URL = "https://api.osv.dev/v1/vulns/"
 TRIES = 3
+
+DAY = 24 * 3600
+KEV_TTL, CVE_TTL, GHSA_TTL = DAY, 7 * DAY, 30 * DAY
+
+# "online" reads fresh cache entries and refreshes old ones, "no-cache" never touches the cache,
+# "offline" never touches the network. Set once by the CLI before any download.
+mode = "online"
+# Oldest cached entry used per kind ("kev", "cve", "ghsa"), in seconds, so --offline can say how old its data is.
+ages: dict[str, float] = {}
+_ages_lock = threading.Lock()
+
+
+def cache_dir() -> Path:
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "vuln-fix-first"
+
+
+def cached(key: str, ttl: int, fetch: Callable[[], Any]) -> Any:
+    """Return the cached data for key ("kev", "cve/CVE-...", "ghsa/GHSA-...") while younger than ttl seconds,
+    else fetch and store it. Errors from fetch are not cached."""
+    path = cache_dir() / f"{key}.json"
+    if mode != "no-cache":
+        try:
+            entry = json.loads(path.read_text(encoding="utf-8"))
+            age = time.time() - float(entry["fetched"])
+            if mode == "offline" or age < ttl:
+                with _ages_lock:
+                    kind = key.split("/")[0]
+                    ages[kind] = max(ages.get(kind, 0.0), age)
+                return entry["data"]
+        except (OSError, ValueError, KeyError, TypeError):
+            pass  # missing or damaged entry: fetch it again
+    if mode == "offline":
+        raise LookupError(f"--offline and no cached copy of {key}")
+    data = fetch()
+    if mode != "no-cache":
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+            tmp.write_text(json.dumps({"fetched": time.time(), "data": data}), encoding="utf-8")
+            os.replace(tmp, path)  # atomic, so a parallel run never reads half a file
+        except OSError as e:  # a read-only home must not stop the ranking
+            print(f"warning: could not write cache {path}: {e}", file=sys.stderr)
+    return data
 
 
 def retryable(e: Exception) -> bool:
@@ -25,6 +71,8 @@ def retryable(e: Exception) -> bool:
 
 
 def _get_json(url: str) -> Any:
+    if mode == "offline":
+        raise LookupError("--offline, no network")
     headers = {"User-Agent": "vuln-fix-first", "Accept": "application/json"}
     with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
         return json.load(r)
@@ -43,11 +91,14 @@ def get_json(url: str) -> Any:
 
 def ghsa_to_cve(ghsa: str) -> str | None:
     try:
-        aliases = get_json(OSV_URL + ghsa).get("aliases", [])
-        return next((a for a in aliases if a.upper().startswith("CVE-")), None)
+        aliases = cached(f"ghsa/{ghsa}", GHSA_TTL, lambda: get_json(OSV_URL + ghsa).get("aliases", []))
     except Exception as e:
         print(f"warning: could not resolve {ghsa}: {e}", file=sys.stderr)
         return None
+    cve = next((str(a).upper() for a in aliases if str(a).upper().startswith("CVE-")), None)
+    if cve is None:
+        print(f"warning: {ghsa} has no CVE ID, skipped", file=sys.stderr)
+    return cve
 
 
 def fetch_epss(cves: list[str]) -> dict[str, tuple[float, float]]:
@@ -62,7 +113,8 @@ def fetch_epss(cves: list[str]) -> dict[str, tuple[float, float]]:
 
 def fetch_kev() -> dict[str, bool]:
     """Map each KEV CVE to whether CISA knows it is used in ransomware campaigns."""
-    return {v["cveID"]: v.get("knownRansomwareCampaignUse") == "Known" for v in get_json(KEV_URL)["vulnerabilities"]}
+    catalog = cached("kev", KEV_TTL, lambda: get_json(KEV_URL))
+    return {v["cveID"]: v.get("knownRansomwareCampaignUse") == "Known" for v in catalog["vulnerabilities"]}
 
 
 def parse_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -94,7 +146,7 @@ def parse_record(record: dict[str, Any]) -> dict[str, Any]:
 
 def fetch_record(cve: str) -> dict[str, Any]:
     try:
-        return parse_record(get_json(CVE_URL + cve))
+        return parse_record(cached(f"cve/{cve}", CVE_TTL, lambda: get_json(CVE_URL + cve)))
     except Exception as e:
         print(f"warning: no CVE record for {cve}: {e}", file=sys.stderr)
         return {"product": "", "cvss": None, "ssvc": {}}
