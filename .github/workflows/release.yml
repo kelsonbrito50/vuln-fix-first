@@ -1,0 +1,37 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # create the GitHub release and upload the zip
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: python tests/test_vuln_fix_first.py
+      - name: Build vuln-fix-first.zip for the Claude app
+        run: |
+          mkdir -p build/vuln-fix-first/scripts build/vuln-fix-first/vuln_fix_first
+          cp SKILL.md LICENSE THIRD_PARTY_NOTICES.md build/vuln-fix-first/
+          cp scripts/vuln_fix_first.py build/vuln-fix-first/scripts/
+          cp vuln_fix_first/*.py vuln_fix_first/py.typed build/vuln-fix-first/vuln_fix_first/
+          (cd build && zip -r ../vuln-fix-first.zip vuln-fix-first)
+          unzip -l vuln-fix-first.zip
+          # The zipped skill must run from its own folder.
+          (cd build && python vuln-fix-first/scripts/vuln_fix_first.py --help > /dev/null)
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" vuln-fix-first.zip --title "$TAG" --notes "See CHANGELOG.md for what changed." --verify-tag
