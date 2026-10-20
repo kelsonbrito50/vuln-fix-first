@@ -101,20 +101,22 @@ def ghsa_to_cve(ghsa: str) -> str | None:
     return cve
 
 
-def fetch_epss(cves: list[str]) -> dict[str, tuple[float, float]]:
-    """Map each CVE to (EPSS probability, percentile among all scored CVEs)."""
-    scores = {}
+def fetch_epss(cves: list[str]) -> tuple[dict[str, tuple[float, float]], str | None]:
+    """Map each CVE to (EPSS probability, percentile among all scored CVEs); also return the scores' date."""
+    scores, date = {}, None
     for i in range(0, len(cves), 100):  # API caps a request at 100 CVEs
         data = get_json(EPSS_URL + ",".join(cves[i:i + 100]))
         for row in data.get("data", []):
             scores[row["cve"]] = (float(row["epss"]), float(row["percentile"]))
-    return scores
+            date = date or row.get("date")
+    return scores, date
 
 
-def fetch_kev() -> dict[str, bool]:
-    """Map each KEV CVE to whether CISA knows it is used in ransomware campaigns."""
+def fetch_kev() -> tuple[dict[str, bool], str | None]:
+    """Map each KEV CVE to whether CISA knows it is used in ransomware campaigns; also return the catalog version."""
     catalog = cached("kev", KEV_TTL, lambda: get_json(KEV_URL))
-    return {v["cveID"]: v.get("knownRansomwareCampaignUse") == "Known" for v in catalog["vulnerabilities"]}
+    kev = {v["cveID"]: v.get("knownRansomwareCampaignUse") == "Known" for v in catalog["vulnerabilities"]}
+    return kev, catalog.get("catalogVersion")
 
 
 def parse_record(record: dict[str, Any]) -> dict[str, Any]:

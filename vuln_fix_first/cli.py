@@ -82,14 +82,14 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     try:
-        kev = sources.fetch_kev()
+        kev, kev_version = sources.fetch_kev()
     except Exception as e:  # without KEV the ranking would hide exploited CVEs, so stop
         sys.exit(f"error: could not get CISA KEV: {e}")
     try:
-        epss = sources.fetch_epss(cves)
+        epss, epss_date = sources.fetch_epss(cves)
     except Exception as e:
         print(f"warning: EPSS unavailable, ranking without it: {e}", file=sys.stderr)
-        epss = {}
+        epss, epss_date = {}, None
     with ThreadPoolExecutor(8) as pool:  # map keeps input order
         records = dict(zip(cves, pool.map(sources.fetch_record, cves)))
     if args.offline:
@@ -100,6 +100,8 @@ def main(argv: list[str] | None = None) -> None:
         score, pct = epss.get(c, (None, None))
         results.append(triage(c, records[c], score, c in kev, args.mission, args.exposed, kev.get(c, False), pct))
     results.sort(key=sort_key)
+    for r in results:  # on every row, so --json stays a plain list
+        r.update(kev_version=kev_version, epss_date=epss_date)
 
     if args.json:
         report.print_json(results)
