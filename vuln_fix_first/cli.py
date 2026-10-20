@@ -7,12 +7,13 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
 from . import report, sources
 from .parse import decode, extract_ids, load_ignores
-from .ssvc import MISSION, sort_key, triage
+from .ssvc import MISSION, RANK, sort_key, triage
 
 
 def capacity(n: str) -> int:
@@ -34,7 +35,11 @@ def main(argv: list[str] | None = None) -> None:
                    help="how many package upgrades you can do now: show the N that matter most")
     p.add_argument("-i", "--ignore", metavar="FILE",
                    help="accepted-risk file, one 'CVE-ID YYYY-MM-DD reason' per line; skipped until that date")
-    p.add_argument("--json", action="store_true", help="print JSON instead of a table")
+    p.add_argument("--format", choices=("text", "json", "sarif"), default="text",
+                   help="text table (default), JSON, or SARIF for GitHub Code Scanning")
+    p.add_argument("--json", dest="format", action="store_const", const="json", help="same as --format json")
+    p.add_argument("--fail-on", type=str.upper, choices=("ACT", "ATTEND"),
+                   help="exit with code 1 if any CVE is ranked at this level or higher (for CI)")
     cache = p.add_mutually_exclusive_group()
     cache.add_argument("--no-cache", action="store_true", help="always download, and do not read or write the cache")
     cache.add_argument("--offline", action="store_true",
@@ -103,7 +108,12 @@ def main(argv: list[str] | None = None) -> None:
     for r in results:  # on every row, so --json stays a plain list
         r.update(kev_version=kev_version, epss_date=epss_date)
 
-    if args.json:
+    if args.format == "json":
         report.print_json(results)
-        return
-    report.print_text(results, args.mission, args.exposed, args.capacity, bool(epss), skipped, ignores, args.ignore)
+    elif args.format == "sarif":
+        print(json.dumps(report.sarif(results, args.file), indent=2))
+    else:
+        report.print_text(results, args.mission, args.exposed, args.capacity, bool(epss), skipped, ignores,
+                          args.ignore)
+    if args.fail_on and any(RANK[r["decision"]] <= RANK[args.fail_on.lower()] for r in results):
+        sys.exit(1)

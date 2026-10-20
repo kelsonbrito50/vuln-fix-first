@@ -4,9 +4,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from . import __version__
 from .ssvc import RANK
 
 Row = dict[str, Any]
+
+SARIF_LEVEL = {"act": "error", "attend": "error", "track*": "warning", "track": "note"}
+# GitHub turns security-severity into critical/high/medium/low. Use the decision, not CVSS:
+# a CVSS 9.8 can be TRACK, and the point of this tool is to show what to fix first.
+SARIF_SEVERITY = {"act": "9.5", "attend": "8.0", "track*": "5.0", "track": "2.0"}
 
 
 def reason(r: Row) -> str:
@@ -42,6 +48,38 @@ def expected_attacked(rows: list[Row]) -> float:
 
 def print_json(results: list[Row]) -> None:
     print(json.dumps(results, indent=2))
+
+
+def sarif(results: list[Row], source: str | None) -> dict[str, Any]:
+    """SARIF 2.1.0 for GitHub Code Scanning. Every result points at the scanned file (line 1),
+    since the CVE is in a dependency, not in a line of code."""
+    uri = (source or "vuln-fix-first-input").replace("\\", "/")
+    rules, findings = [], []
+    for r in results:
+        title = f"{r['cve']} in {r['product']}" if r["product"] else r["cve"]
+        rules.append({
+            "id": r["cve"],
+            "shortDescription": {"text": title},
+            "helpUri": f"https://www.cve.org/CVERecord?id={r['cve']}",
+            "properties": {"security-severity": SARIF_SEVERITY[r["decision"]], "tags": ["security", r["decision"]]},
+        })
+        findings.append({
+            "ruleId": r["cve"],
+            "level": SARIF_LEVEL[r["decision"]],
+            "message": {"text": f"{r['decision'].upper()}: {title}. {reason(r)}"},
+            "locations": [{"physicalLocation": {"artifactLocation": {"uri": uri}, "region": {"startLine": 1}}}],
+            "partialFingerprints": {"vulnFixFirstCve/v1": r["cve"]},
+            "properties": {k: r[k] for k in ("decision", "fix_within", "due_date", "in_kev", "epss")},
+        })
+    return {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {"name": "vuln-fix-first", "version": __version__,
+                                "informationUri": "https://github.com/kelsonbrito50/vuln-fix-first", "rules": rules}},
+            "results": findings,
+        }],
+    }
 
 
 def print_text(results: list[Row], mission: str, exposed: bool, cap: int | None, has_epss: bool,
