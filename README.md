@@ -20,7 +20,7 @@ An agent skill for Claude Code, Codex, GitHub Copilot CLI, Amp, OpenCode and any
 
 **How it works, in 3 steps:**
 
-1. **Scan** your project with the tool you already use: `npm audit --json > audit.json`, `pip-audit -f json`, Trivy, Grype or Dependabot.
+1. **Scan** your project with the tool you already use: `npm audit --json > audit.json`, `pip-audit -f json > audit.json`, Trivy, Grype or Dependabot.
 2. **Ask** your agent: *"/vuln-fix-first this audit"* or *"which of these CVEs should I fix first?"*
 3. **Get** each security bug labeled **ACT**, **ATTEND**, **TRACK\*** or **TRACK**, with a fix-by date and the packages to upgrade first.
 
@@ -40,6 +40,53 @@ An agent skill for Claude Code, Codex, GitHub Copilot CLI, Amp, OpenCode and any
 Clone https://github.com/kelsonbrito50/vuln-fix-first into a temporary folder, read its SKILL.md and follow it on audit.json.
 ```
 
+<details>
+<summary><strong>New to the terminal? A step-by-step first run (5 minutes)</strong></summary>
+
+<br>
+
+You don't need an AI agent or any programming knowledge for this. You'll type a few commands into the **terminal**: a window where you give the computer text commands instead of clicking.
+
+**1. Open the terminal**
+
+| System | How |
+|---|---|
+| Windows | Press the Windows key, type `PowerShell`, press Enter. |
+| macOS | Press Cmd + Space, type `Terminal`, press Enter. |
+| Linux | Press Ctrl + Alt + T. |
+
+**2. Check that Python is installed.** Python is the language the tool is written in. Type this and press Enter:
+
+```
+python --version
+```
+
+You should see `Python 3.9` or higher. If you see an error:
+- **Windows:** try `py --version`. If that works, type `py` instead of `python` in every command below. If not, install Python from [python.org/downloads](https://www.python.org/downloads/) and tick **"Add python.exe to PATH"** in the installer.
+- **macOS / Linux:** try `python3 --version`, and use `python3` in every command below.
+
+**3. Download the tool.** On this page, click the green **Code** button, then **Download ZIP**. Unzip it. You get a folder named `vuln-fix-first-main`.
+
+**4. Go into that folder in the terminal.** Type `cd ` (with a space), drag the unzipped folder into the terminal window, and press Enter. Dragging pastes the folder's location for you.
+
+**5. Run it on a famous bug** (Log4j, from 2021):
+
+```
+python scripts/vuln_fix_first.py CVE-2021-44228
+```
+
+After a few seconds the first line starts with `ACT`, which means "fix now". The rest of that line explains why, and the [labels table](#example) below says what each label means. You need an internet connection, because the tool checks live public data.
+
+**6. Run it on your own project.** Save your scanner's report as a file (for example `audit.json`) and pass it with `-f`. Use the full location of the file, or drag the file into the terminal after `-f `:
+
+```
+python scripts/vuln_fix_first.py -f audit.json
+```
+
+No scanner yet? For a JavaScript project, run `npm audit --json > audit.json` inside the project folder. For a Python project, install the scanner once with `python -m pip install pip-audit`, then run `pip-audit -f json > audit.json`.
+
+</details>
+
 ---
 
 ## Why
@@ -56,6 +103,12 @@ Most of those bugs are never used in a real attack. The urgent ones are those at
 
 | Term | In plain words |
 |---|---|
+| **Terminal** | A window where you type commands. PowerShell on Windows, Terminal on macOS and Linux. |
+| **Package** (or library) | Code written by others that your project reuses, like `axios` or `lodash`. Most security bugs live there. |
+| **Scanner** | A tool that lists the known security bugs in the packages your project uses, like `npm audit` or `pip-audit`. |
+| **Upgrade** | Installing a newer version of a package, which usually contains the fix. |
+| **Agent** | An AI assistant that can run commands for you, like Claude Code or Codex. |
+| **Skill** | A folder with instructions (`SKILL.md`) that teaches an agent a new task. This repository is one. |
 | **CVE** | The ID of one known security bug, like `CVE-2021-44228` (the famous Log4j bug). |
 | **GHSA** | GitHub's ID for a security bug in a code package. `npm audit` uses these. The tool converts them to CVEs. |
 | **KEV** | CISA's list of bugs that attackers are using in real attacks right now. If a bug is on it, fix it first. |
@@ -98,23 +151,31 @@ Expected to see attacks in the next 30 days (sum of EPSS): 3.35 of these 5 CVEs;
 
 ## Install
 
-**One command, any agent:** the [`skills` CLI](https://skills.sh) finds the `SKILL.md` file and installs it into the agents you pick.
+**One command, any agent:** the [`skills` CLI](https://skills.sh) finds the `SKILL.md` file and installs it into the agents you pick. It needs [Node.js](https://nodejs.org/), which provides the `npx` command.
 ```
 npx skills add kelsonbrito50/vuln-fix-first
 ```
 
-Or copy it by hand with `git clone`:
+Or copy it by hand with `git clone` (needs [Git](https://git-scm.com/downloads)). The skill must end up in a folder named `vuln-fix-first` inside your agent's skills folder.
 
 **Claude Code**
 ```
+# macOS, Linux, Git Bash
 git clone https://github.com/kelsonbrito50/vuln-fix-first ~/.claude/skills/vuln-fix-first
+# Windows PowerShell
+git clone https://github.com/kelsonbrito50/vuln-fix-first "$HOME\.claude\skills\vuln-fix-first"
 ```
 
 **Codex, GitHub Copilot CLI, Amp, OpenCode** (they share one skills folder)
 ```
+# macOS, Linux, Git Bash
 git clone https://github.com/kelsonbrito50/vuln-fix-first ~/.agents/skills/vuln-fix-first
+# Windows PowerShell
+git clone https://github.com/kelsonbrito50/vuln-fix-first "$HOME\.agents\skills\vuln-fix-first"
 ```
-In Codex, type `$vuln-fix-first` or run `/skills`. In Claude Code, type `/vuln-fix-first`. Both also use the skill on their own when you ask what to fix first.
+On Windows PowerShell, use the `$HOME` line: there `~` is not translated for `git`, which would create a folder literally named `~`.
+
+Restart the agent after installing so it finds the new skill. In Codex, type `$vuln-fix-first` or run `/skills`. In Claude Code, type `/vuln-fix-first`. Both also use the skill on their own when you ask what to fix first.
 
 **Claude app (web or desktop):** download `vuln-fix-first.zip` from [Releases](https://github.com/kelsonbrito50/vuln-fix-first/releases), then upload it in **Settings → Capabilities → Skills**. Code execution must be on, and the sandbox must be allowed to reach the 4 sites listed under [Data sources](#data-sources-and-attribution).
 
