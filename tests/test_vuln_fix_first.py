@@ -193,19 +193,22 @@ def http_error(code):
 class Retry(unittest.TestCase):
     def test_retries_429_5xx_and_timeouts_then_succeeds(self):
         answers = [http_error(429), urllib.error.URLError(socket.timeout("timed out")), io.BytesIO(b'{"ok": 1}')]
-        with mock.patch("urllib.request.urlopen", side_effect=answers) as urlopen,                 mock.patch("time.sleep") as sleep:
+        with mock.patch("urllib.request.urlopen", side_effect=answers) as urlopen, \
+                mock.patch("time.sleep") as sleep:
             self.assertEqual(t.get_json("https://example.test"), {"ok": 1})
         self.assertEqual(urlopen.call_count, 3)
         self.assertEqual([c.args[0] for c in sleep.call_args_list], [1, 2])
 
     def test_gives_up_after_3_tries(self):
-        with mock.patch("urllib.request.urlopen", side_effect=[http_error(503)] * 3) as urlopen,                 mock.patch("time.sleep"):
+        with mock.patch("urllib.request.urlopen", side_effect=[http_error(503)] * 3) as urlopen, \
+                mock.patch("time.sleep"):
             with self.assertRaises(urllib.error.HTTPError):
                 t.get_json("https://example.test")
         self.assertEqual(urlopen.call_count, 3)
 
     def test_404_is_not_retried(self):
-        with mock.patch("urllib.request.urlopen", side_effect=[http_error(404)]) as urlopen,                 mock.patch("time.sleep") as sleep:
+        with mock.patch("urllib.request.urlopen", side_effect=[http_error(404)]) as urlopen, \
+                mock.patch("time.sleep") as sleep:
             with self.assertRaises(urllib.error.HTTPError):
                 t.get_json("https://example.test")
         self.assertEqual((urlopen.call_count, sleep.call_count), (1, 0))

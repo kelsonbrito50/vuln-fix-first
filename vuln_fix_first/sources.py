@@ -125,7 +125,8 @@ def parse_record(record: dict[str, Any]) -> dict[str, Any]:
     cna = containers.get("cna", {})
     affected = cna.get("affected") or [{}]
     a = affected[0]
-    product = next((v for v in (a.get("product"), a.get("packageName"), a.get("vendor")) if v and v.lower() != "n/a"), "")
+    names = (a.get("product"), a.get("packageName"), a.get("vendor"))
+    product = next((v for v in names if v and v.lower() != "n/a"), "")
     product = "".join(c for c in str(product) if c.isprintable())  # records are third-party text: no terminal escapes
     info: dict[str, Any] = {"product": product, "cvss": None, "ssvc": {}}
     metrics = list(cna.get("metrics", []))

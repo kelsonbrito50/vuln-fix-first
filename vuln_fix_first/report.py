@@ -37,7 +37,8 @@ def by_package(results: list[Row]) -> list[tuple[str, list[Row]]]:
     groups: dict[str, tuple[str, list[Row]]] = {}
     for r in results:  # results are already sorted, so the first row of each group is its worst
         name = r["product"] or "(unknown product)"
-        groups.setdefault(name.lower().split("/")[-1], (name, []))[1].append(r)  # "Lodash" = "lodash", "axios/axios" = "axios"
+        # "Lodash" = "lodash", "axios/axios" = "axios"
+        groups.setdefault(name.lower().split("/")[-1], (name, []))[1].append(r)
     return sorted(groups.values(), key=lambda g: (RANK[g[1][0]["decision"]], -len(g[1])))
 
 
