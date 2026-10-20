@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).parent
-sys.path.insert(0, str(HERE.parent / "scripts"))
+sys.path.insert(0, str(HERE.parent))
 import vuln_fix_first as t  # noqa: E402
 
 
