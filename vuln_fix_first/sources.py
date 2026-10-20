@@ -12,6 +12,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from .parse import CVE_RE
+
 KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 EPSS_URL = "https://api.first.org/data/v1/epss?cve="
 CVE_URL = "https://cveawg.mitre.org/api/cve/"
@@ -95,7 +97,8 @@ def ghsa_to_cve(ghsa: str) -> str | None:
     except Exception as e:
         print(f"warning: could not resolve {ghsa}: {e}", file=sys.stderr)
         return None
-    cve = next((str(a).upper() for a in aliases if str(a).upper().startswith("CVE-")), None)
+    # aliases are third-party text that ends up in URLs, cache paths and the terminal: only exact CVE IDs
+    cve = next((str(a).upper() for a in aliases if CVE_RE.fullmatch(str(a))), None)
     if cve is None:
         print(f"warning: {ghsa} has no CVE ID, skipped", file=sys.stderr)
     return cve
@@ -134,7 +137,7 @@ def parse_record(record: dict[str, Any]) -> dict[str, Any]:
         metrics += adp.get("metrics", [])
     for key in ("cvssV4_0", "cvssV3_1", "cvssV3_0"):  # newest CVSS version wins
         score = next((m[key]["baseScore"] for m in metrics if key in m), None)
-        if score is not None:
+        if isinstance(score, (int, float)):  # a score that is not a number is third-party text: drop it
             info["cvss"] = (key[5:].replace("_", "."), score)
             break
     for m in metrics:
