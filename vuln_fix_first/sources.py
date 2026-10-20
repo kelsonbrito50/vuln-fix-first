@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import socket
 import sys
+import time
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -10,12 +13,32 @@ KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulner
 EPSS_URL = "https://api.first.org/data/v1/epss?cve="
 CVE_URL = "https://cveawg.mitre.org/api/cve/"
 OSV_URL = "https://api.osv.dev/v1/vulns/"
+TRIES = 3
 
 
-def get_json(url: str) -> Any:
+def retryable(e: Exception) -> bool:
+    """Rate limits (429), server errors (5xx) and timeouts are worth another try; anything else is not."""
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code == 429 or e.code >= 500
+    reason = e.reason if isinstance(e, urllib.error.URLError) else e
+    return isinstance(reason, (socket.timeout, TimeoutError))
+
+
+def _get_json(url: str) -> Any:
     headers = {"User-Agent": "vuln-fix-first", "Accept": "application/json"}
     with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
         return json.load(r)
+
+
+def get_json(url: str) -> Any:
+    for attempt in range(TRIES - 1):
+        try:
+            return _get_json(url)
+        except Exception as e:
+            if not retryable(e):
+                raise
+            time.sleep(2 ** attempt)  # 1 s, then 2 s
+    return _get_json(url)
 
 
 def ghsa_to_cve(ghsa: str) -> str | None:
