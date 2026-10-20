@@ -5,7 +5,7 @@ vuln-fix-first is MIT licensed (see `LICENSE`). It also contains, or uses, the t
 ## Included in this repo
 
 ### SSVC decision tables (CERT/CC, Carnegie Mellon University)
-`scripts/vuln_fix_first.py` embeds two decision tables from the [SSVC project](https://github.com/CERTCC/SSVC):
+`vuln_fix_first/ssvc.py` embeds two decision tables from the [SSVC project](https://github.com/CERTCC/SSVC), and `tests/fixtures/` holds unchanged copies of both CSV files so the tests can compare every row:
 - `data/csv/cisa/cisa_coordinator_2_0_3.csv` (CISA Coordinator decisions)
 - `data/csv/cisa/cisa_bod_26_04_1_0_0.csv` (CISA BOD 26-04 remediation timelines)
 

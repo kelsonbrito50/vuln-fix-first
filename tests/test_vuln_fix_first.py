@@ -1,4 +1,6 @@
+import csv
 import io
+import itertools
 import json
 import socket
 import sys
@@ -73,7 +75,7 @@ class Parsing(unittest.TestCase):
         self.assertEqual(ghsas, ["GHSA-jfh8-c2jp-5v3q"])
 
     def test_decode_utf16_and_utf8(self):
-        text = '{"id": "CVE-2021-44228", "title": "Log4Shell é"}'
+        text = '{"id": "CVE-2021-44228", "title": "Log4Shell Ã©"}'
         self.assertEqual(t.decode(text.encode("utf-16")), text)  # Windows PowerShell 5.1 redirect
         self.assertEqual(t.decode(b"\xef\xbb\xbf" + text.encode()), text)
         self.assertIn("CVE-2021-44228", t.decode(b"CVE-2021-44228 \xff bad byte"))
@@ -185,7 +187,7 @@ class Deadline(unittest.TestCase):
 
 
 def http_error(code):
-    return urllib.error.HTTPError("https://example.test", code, "error", {}, io.BytesIO(b""))
+    return urllib.error.HTTPError("https://example.test", code, "error", {}, None)
 
 
 class Retry(unittest.TestCase):
@@ -316,6 +318,125 @@ class Output(unittest.TestCase):
         self.assertEqual(run(["--fail-on", "attend", "CVE-2021-44228"])[0], 1)
         self.assertEqual(run(["--fail-on", "ATTEND", "CVE-2020-0001"])[0], 0)
         self.assertEqual(run(["CVE-2021-44228"])[0], 0)
+
+
+def official_rows(name):
+    """CSV straight from the CERT/CC SSVC repository (data/csv/cisa/), header row dropped."""
+    with open(HERE / "fixtures" / name, newline="", encoding="utf-8") as fh:
+        return list(csv.reader(fh))[1:]
+
+
+class OfficialTables(unittest.TestCase):
+    def test_every_decision_matches_cert_cc(self):
+        official = {tuple(row[1:5]): row[5] for row in official_rows("cisa_coordinator_2_0_3.csv")}
+        combos = list(itertools.product(("none", "public poc", "active"), ("no", "yes"), ("partial", "total"),
+                                        t.MISSION))
+        self.assertEqual(len(combos), 36)
+        self.assertEqual(set(official), set(combos))  # the CSV has every combination and nothing else
+        for combo in combos:
+            with self.subTest(combo):
+                self.assertEqual(t.decide(*combo), official[combo])
+
+    def test_every_deadline_matches_cert_cc(self):
+        today = __import__("datetime").date(2026, 1, 1)
+        official = {tuple(row[1:5]): row[5] for row in official_rows("cisa_bod_26_04_1_0_0.csv")}
+        combos = list(itertools.product(("no", "yes"), ("no", "yes"), ("no", "yes"), ("partial", "total")))
+        self.assertEqual(set(official), set(combos))
+        for kev, exposed, automatable, impact in combos:
+            want = official[(kev, exposed, automatable, impact)]
+            with self.subTest((kev, exposed, automatable, impact, want)):
+                label, due = t.deadline(kev == "yes", exposed == "yes", automatable, impact, today)
+                if want == "fix on system upgrade":
+                    self.assertEqual((label, due), ("at next system upgrade", None))
+                else:
+                    days = int(want.split()[0])
+                    self.assertEqual(due, (today + __import__("datetime").timedelta(days=days)).isoformat())
+                    self.assertEqual("check for compromise" in label, "forensic" in want)
+
+
+class EdgeCases(unittest.TestCase):
+    def test_unknown_cve_is_ranked_with_assumptions(self):
+        code, out, err = run(["--json", "CVE-2099-99999"])
+        row = json.loads(out)[0]
+        self.assertEqual(code, 0)
+        self.assertIn("no CVE record for CVE-2099-99999", err)
+        self.assertEqual(row["assumed"], ["exploitation", "automatable", "technical impact"])
+
+    def test_ghsa_without_cve_is_skipped_with_warning(self):
+        osv = {sources.OSV_URL + "GHSA-cccc-ffff-gggg": {"aliases": ["PYSEC-2026-1"]}}
+        code, out, err = run(["GHSA-cccc-ffff-gggg"], osv)
+        self.assertEqual(code, 1)
+        self.assertIn("GHSA-cccc-ffff-gggg has no CVE ID, skipped", err)
+        self.assertIn("no CVE or GHSA IDs found", err)
+        code, out, err = run(["--json", "GHSA-cccc-ffff-gggg", "CVE-2021-44228"], osv)
+        self.assertEqual([r["cve"] for r in json.loads(out)], ["CVE-2021-44228"])
+
+    def test_utf16_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "audit.json"
+            path.write_text('{"vulns": ["CVE-2021-44228", "CVE-2020-0001"]}', encoding="utf-16")
+            code, out, _ = run(["--json", "-f", str(path)])
+        self.assertEqual((code, sorted(r["cve"] for r in json.loads(out))), (0, ["CVE-2020-0001", "CVE-2021-44228"]))
+
+    def test_expired_ignore_is_ranked_again(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "accepted.txt"
+            path.write_text("CVE-2021-44228 2020-01-01 old exception\nCVE-2020-0001 2999-01-01 still fine\n")
+            code, out, err = run(["-i", str(path), "CVE-2021-44228", "CVE-2020-0001"])
+        self.assertEqual(code, 0)
+        self.assertIn("accepted risk for CVE-2021-44228 has expired, ranking it again", err)
+        self.assertIn("ACT     CVE-2021-44228", out)
+        self.assertIn("CVE-2020-0001    until 2999-01-01  still fine", out)
+
+    def test_capacity_larger_than_package_count(self):
+        code, out, _ = run(["--capacity", "10", "CVE-2021-44228", "CVE-2020-0001"])
+        self.assertEqual(code, 0)
+        self.assertIn("Your capacity: 10 upgrade(s). Do these first, they fix 2 of 2 CVEs:", out)
+
+    def test_kev_failure_aborts(self):
+        code, out, err = run(["CVE-2021-44228"], {sources.KEV_URL: http_error(503)})
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("could not get CISA KEV", err)
+
+    def test_epss_failure_only_warns(self):
+        code, out, err = run(["CVE-2021-44228"], {sources.EPSS_URL: urllib.error.URLError("no route to host")})
+        self.assertEqual(code, 0)
+        self.assertIn("warning: EPSS unavailable", err)
+        self.assertIn("ACT     CVE-2021-44228", out)
+        self.assertNotIn("Expected to see attacks", out)
+
+
+def scanner_ids(name):
+    """IDs read from each scanner's own JSON fields, to check the plain-text regex misses none."""
+    data = json.loads((HERE / "fixtures" / name).read_text(encoding="utf-8"))
+    if name == "npm-audit.json":
+        ids = [via["url"].rsplit("/", 1)[-1] for v in data["vulnerabilities"].values()
+               for via in v["via"] if isinstance(via, dict)]
+    elif name == "pip-audit.json":
+        ids = [i for d in data["dependencies"] for v in d.get("vulns", []) for i in [v["id"], *v["aliases"]]]
+    elif name == "trivy.json":
+        ids = [v["VulnerabilityID"] for r in data["Results"] for v in r.get("Vulnerabilities", [])]
+    else:  # grype
+        ids = [i for m in data["matches"]
+               for i in [m["vulnerability"]["id"], *(r["id"] for r in m["relatedVulnerabilities"])]]
+    return {i.upper() for i in ids if i.upper().startswith(("CVE-", "GHSA-"))}
+
+
+class ScannerFixtures(unittest.TestCase):
+    # Real output, generated from a sample with lodash 4.17.15, minimist 1.2.0, axios 0.21.0,
+    # requests 2.19.0, urllib3 1.24.1 and jinja2 2.10 (npm 11.19.1, pip-audit 2.10.1, trivy 0.76.0, grype 0.121.0).
+    # Expected counts: (CVEs, GHSAs) found anywhere in the text, references included.
+    COUNTS = {"npm-audit.json": (1, 33), "pip-audit.json": (26, 24), "trivy.json": (99, 57), "grype.json": (62, 57)}
+
+    def test_extract_ids_finds_every_scanner_id(self):
+        for name, counts in self.COUNTS.items():
+            with self.subTest(name):
+                cves, ghsas = t.extract_ids(t.decode((HERE / "fixtures" / name).read_bytes()))
+                self.assertEqual((len(cves), len(ghsas)), counts)
+                found = {i.upper() for i in cves + ghsas}
+                self.assertEqual(scanner_ids(name) - found, set())
 
 
 if __name__ == "__main__":
