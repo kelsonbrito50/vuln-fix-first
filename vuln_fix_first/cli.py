@@ -35,7 +35,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("-i", "--ignore", metavar="FILE",
                    help="accepted-risk file, one 'CVE-ID YYYY-MM-DD reason' per line; skipped until that date")
     p.add_argument("--json", action="store_true", help="print JSON instead of a table")
+    cache = p.add_mutually_exclusive_group()
+    cache.add_argument("--no-cache", action="store_true", help="always download, and do not read or write the cache")
+    cache.add_argument("--offline", action="store_true",
+                       help="use only cached data (no network); warns how old it is. EPSS is not cached")
     args = p.parse_args(argv)
+    sources.mode = "offline" if args.offline else "no-cache" if args.no_cache else "online"
+    sources.ages.clear()
 
     ignores: dict[str, tuple[str, str]] = {}
     expired: list[str] = []
@@ -78,14 +84,17 @@ def main(argv: list[str] | None = None) -> None:
     try:
         kev = sources.fetch_kev()
     except Exception as e:  # without KEV the ranking would hide exploited CVEs, so stop
-        sys.exit(f"error: could not download CISA KEV: {e}")
+        sys.exit(f"error: could not get CISA KEV: {e}")
     try:
         epss = sources.fetch_epss(cves)
     except Exception as e:
         print(f"warning: EPSS unavailable, ranking without it: {e}", file=sys.stderr)
         epss = {}
-    with ThreadPoolExecutor(8) as pool:
+    with ThreadPoolExecutor(8) as pool:  # map keeps input order
         records = dict(zip(cves, pool.map(sources.fetch_record, cves)))
+    if args.offline:
+        for kind, age in sorted(sources.ages.items()):
+            print(f"warning: offline, oldest cached {kind.upper()} data is {age / 86400:.1f} days old", file=sys.stderr)
     results = []
     for c in cves:
         score, pct = epss.get(c, (None, None))
