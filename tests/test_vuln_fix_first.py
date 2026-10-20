@@ -220,7 +220,8 @@ class Cache(unittest.TestCase):
     def test_second_call_uses_cache(self):
         patch, calls = fake_net({sources.KEV_URL: self.KEV})
         with patch:
-            self.assertEqual(t.fetch_kev(), t.fetch_kev())
+            self.assertEqual(t.fetch_kev(), ({"CVE-2021-44228": False}, "2026.10.17"))
+            t.fetch_kev()
         self.assertEqual(len(calls), 1)
         self.assertTrue((sources.cache_dir() / "kev.json").exists())
 
@@ -247,7 +248,7 @@ class Cache(unittest.TestCase):
             t.fetch_kev()
         sources.mode = "offline"
         with mock.patch("time.time", return_value=__import__("time").time() + 3 * sources.DAY):
-            self.assertIn("CVE-2021-44228", t.fetch_kev())
+            self.assertIn("CVE-2021-44228", t.fetch_kev()[0])
         self.assertGreater(sources.ages["kev"], 2 * sources.DAY)
         with self.assertRaises(LookupError):
             t.get_json(sources.EPSS_URL + "CVE-2021-44228")
@@ -263,7 +264,7 @@ class Cache(unittest.TestCase):
         path.write_text("{not json")
         patch, calls = fake_net({sources.KEV_URL: self.KEV})
         with patch:
-            self.assertIn("CVE-2021-44228", t.fetch_kev())
+            self.assertIn("CVE-2021-44228", t.fetch_kev()[0])
         self.assertEqual(len(calls), 1)
 
 
