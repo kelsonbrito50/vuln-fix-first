@@ -20,7 +20,7 @@ You'll get a first answer within 7 days. Once a fix is released, the report can 
 
 In scope:
 
-- The script `scripts/vuln_fix_first.py`, for example unsafe parsing of input files or of data from the 4 sites it calls.
+- The `vuln_fix_first` package (run through `scripts/vuln_fix_first.py`), for example unsafe parsing of input files or of data from the 4 sites it calls.
 - A wrong ranking caused by a bug in the code, for example a KEV bug labeled TRACK.
 
 Out of scope:

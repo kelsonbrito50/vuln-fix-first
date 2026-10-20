@@ -5,7 +5,7 @@ Thanks for helping. Bug reports, fixes and new scanner examples are all welcome.
 ## Before you open a pull request
 
 1. **Open an issue first** for anything bigger than a small fix, so we can agree on the change.
-2. **Keep the standard library only.** The script must run on a clean Python 3.9+ with nothing to install.
+2. **Keep the standard library only.** The script must run on a clean Python 3.9+ with nothing to install. Dev tools (mypy, ruff, coverage) go in the `dev` extra of `pyproject.toml` only.
 3. **Add a test** for new logic in `tests/test_vuln_fix_first.py`. Tests must not call the network.
 4. **Run the tests:**
    ```

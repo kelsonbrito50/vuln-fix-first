@@ -1,0 +1,43 @@
+# Example: rank the bugs `npm audit` finds, show them in GitHub's Security tab,
+# and fail the build when one must be fixed now (ACT).
+# Copy this file to .github/workflows/ in your own project. For pip-audit, Trivy or Grype,
+# change the "Scan" step; vuln-fix-first reads any of their outputs.
+name: vulnerabilities
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * *"  # daily: KEV and EPSS change every day, even when your code doesn't
+
+permissions:
+  contents: read
+
+jobs:
+  rank:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # upload SARIF to the Security tab
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install vuln-fix-first
+        run: python -m pip install "git+https://github.com/kelsonbrito50/vuln-fix-first@v1.1.0"
+      - name: Scan
+        run: npm audit --json > audit.json || true  # npm audit exits 1 when it finds bugs; rank them instead
+      - name: Rank
+        # --exposed: drop it if this app is not reachable from the internet.
+        run: vuln-fix-first -f audit.json --mission high --exposed --format sarif --fail-on ACT > vuln-fix-first.sarif
+      - name: Upload to the Security tab
+        if: always()  # upload even when --fail-on failed the previous step
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: vuln-fix-first.sarif
+          category: vuln-fix-first
