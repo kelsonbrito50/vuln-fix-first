@@ -1,0 +1,98 @@
+"""Rank CVEs by what to fix first, using CISA KEV, FIRST EPSS and the CISA SSVC decision table.
+
+Input: CVE or GHSA IDs as arguments, or any text/JSON on stdin or in a file
+(scanner output from Trivy, Grype, pip-audit, npm audit, Dependabot...).
+Standard library only.
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+from . import report, sources
+from .parse import decode, extract_ids, load_ignores
+from .ssvc import MISSION, sort_key, triage
+
+
+def capacity(n: str) -> int:
+    value = int(n)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be 1 or more")
+    return value
+
+
+def main(argv: list[str] | None = None) -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("ids", nargs="*", help="CVE or GHSA IDs (default: read stdin)")
+    p.add_argument("-f", "--file", help="scanner output or any text file to pull IDs from")
+    p.add_argument("-m", "--mission", choices=MISSION, default="medium",
+                   help="how much the affected system matters to you (default: medium)")
+    p.add_argument("-x", "--exposed", action="store_true",
+                   help="the system is reachable from the internet or other untrusted networks")
+    p.add_argument("-c", "--capacity", type=capacity, metavar="N",
+                   help="how many package upgrades you can do now: show the N that matter most")
+    p.add_argument("-i", "--ignore", metavar="FILE",
+                   help="accepted-risk file, one 'CVE-ID YYYY-MM-DD reason' per line; skipped until that date")
+    p.add_argument("--json", action="store_true", help="print JSON instead of a table")
+    args = p.parse_args(argv)
+
+    ignores: dict[str, tuple[str, str]] = {}
+    expired: list[str] = []
+    if args.ignore:
+        try:
+            with open(args.ignore, "rb") as fh:
+                ignores, expired = load_ignores(decode(fh.read()))
+        except OSError as e:
+            p.error(f"cannot read {args.ignore}: {e.strerror}")
+        except ValueError as e:
+            p.error(f"{args.ignore}: {e}")
+
+    if args.file:
+        try:
+            with open(args.file, "rb") as fh:
+                text = decode(fh.read())
+        except OSError as e:
+            p.error(f"cannot read {args.file}: {e.strerror}")
+    elif args.ids:
+        text = " ".join(args.ids)
+    elif sys.stdin.isatty():
+        p.error("give CVE/GHSA IDs, a file with -f, or pipe scanner output in")
+    else:
+        text = decode(sys.stdin.buffer.read())
+
+    cves, ghsas = extract_ids(text)
+    with ThreadPoolExecutor(8) as pool:
+        cves += [c for c in pool.map(sources.ghsa_to_cve, ghsas) if c and c not in cves]
+    if not cves:
+        sys.exit("no CVE or GHSA IDs found in the input")
+    for c in cves:
+        if c in expired:
+            print(f"warning: accepted risk for {c} has expired, ranking it again", file=sys.stderr)
+    skipped = [c for c in cves if c in ignores]
+    cves = [c for c in cves if c not in ignores]
+    if not cves:
+        print(f"all {len(skipped)} CVEs are in the accepted-risk file, nothing to rank")
+        return
+
+    try:
+        kev = sources.fetch_kev()
+    except Exception as e:  # without KEV the ranking would hide exploited CVEs, so stop
+        sys.exit(f"error: could not download CISA KEV: {e}")
+    try:
+        epss = sources.fetch_epss(cves)
+    except Exception as e:
+        print(f"warning: EPSS unavailable, ranking without it: {e}", file=sys.stderr)
+        epss = {}
+    with ThreadPoolExecutor(8) as pool:
+        records = dict(zip(cves, pool.map(sources.fetch_record, cves)))
+    results = []
+    for c in cves:
+        score, pct = epss.get(c, (None, None))
+        results.append(triage(c, records[c], score, c in kev, args.mission, args.exposed, kev.get(c, False), pct))
+    results.sort(key=sort_key)
+
+    if args.json:
+        report.print_json(results)
+        return
+    report.print_text(results, args.mission, args.exposed, args.capacity, bool(epss), skipped, ignores, args.ignore)
