@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vuln-fix-first"
+dynamic = ["version"]
+description = "Rank CVEs by what to fix first, with deadlines (CISA KEV, EPSS, SSVC)."
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Kelson Brito"}]
+requires-python = ">=3.9"
+dependencies = []
+keywords = ["cve", "vulnerability", "kev", "epss", "ssvc", "sarif", "security"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = ["mypy==2.4.0", "ruff==0.17.1", "coverage==7.16.2"]
+
+[project.scripts]
+vuln-fix-first = "vuln_fix_first.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/kelsonbrito50/vuln-fix-first"
+Changelog = "https://github.com/kelsonbrito50/vuln-fix-first/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+packages = ["vuln_fix_first"]
+
+[tool.setuptools.dynamic]
+version = {attr = "vuln_fix_first.__version__"}
+
+[tool.mypy]
+strict = true
+files = ["vuln_fix_first"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+# The classic set; network calls catch broad exceptions on purpose (warn and go on).
+select = ["E", "F", "W", "I", "B", "UP"]
