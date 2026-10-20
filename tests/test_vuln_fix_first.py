@@ -268,5 +268,55 @@ class Cache(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
 
+KEV = {"catalogVersion": "2026.10.17", "vulnerabilities": [
+    {"cveID": "CVE-2021-44228", "knownRansomwareCampaignUse": "Known"}]}
+EPSS = {"data": [{"cve": "CVE-2021-44228", "epss": "0.94", "percentile": "0.99", "date": "2026-10-19"},
+                 {"cve": "CVE-2020-0001", "epss": "0.001", "percentile": "0.1", "date": "2026-10-19"}]}
+
+
+def run(argv, routes=None):
+    """Run the CLI against a fake network; return (exit code, stdout, stderr)."""
+    import contextlib
+    import shutil
+    shutil.rmtree(sources.cache_dir(), ignore_errors=True)
+    routes = {sources.KEV_URL: KEV, sources.EPSS_URL: EPSS, **(routes or {})}
+    patch, _ = fake_net(routes)
+    out, err, code = io.StringIO(), io.StringIO(), 0
+    with patch, contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            t.main(argv)
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, int) else 1
+            err.write(str(e.code))
+    sources.mode = "online"
+    return code, out.getvalue(), err.getvalue()
+
+
+class Output(unittest.TestCase):
+    def test_json_rows_carry_kev_version_and_epss_date(self):
+        code, out, _ = run(["--json", "CVE-2021-44228"])
+        row = json.loads(out)[0]
+        self.assertEqual((code, row["kev_version"], row["epss_date"]), (0, "2026.10.17", "2026-10-19"))
+
+    def test_sarif(self):
+        code, out, _ = run(["--format", "sarif", "CVE-2021-44228", "CVE-2020-0001"])
+        log = json.loads(out)
+        self.assertEqual((code, log["version"]), (0, "2.1.0"))
+        results = log["runs"][0]["results"]
+        self.assertEqual([(r["ruleId"], r["level"]) for r in results],
+                         [("CVE-2021-44228", "error"), ("CVE-2020-0001", "note")])
+        rules = {r["id"]: r for r in log["runs"][0]["tool"]["driver"]["rules"]}
+        self.assertEqual(rules["CVE-2021-44228"]["properties"]["security-severity"], "9.5")
+        self.assertEqual(results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
+                         "vuln-fix-first-input")
+
+    def test_fail_on(self):
+        # CVE-2021-44228 is ACT (KEV), CVE-2020-0001 has no record: none, yes, total, medium = TRACK.
+        self.assertEqual(run(["--fail-on", "ACT", "CVE-2021-44228"])[0], 1)
+        self.assertEqual(run(["--fail-on", "attend", "CVE-2021-44228"])[0], 1)
+        self.assertEqual(run(["--fail-on", "ATTEND", "CVE-2020-0001"])[0], 0)
+        self.assertEqual(run(["CVE-2021-44228"])[0], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
