@@ -12,7 +12,7 @@ An agent skill for Claude Code, Codex, GitHub Copilot CLI, Amp, OpenCode and any
   <a href="https://github.com/kelsonbrito50/vuln-fix-first/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/kelsonbrito50/vuln-fix-first/test.yml?branch=main&style=for-the-badge&label=tests" alt="Test status"></a>
   <img src="https://img.shields.io/badge/Agent_Skills-Open_Standard-blueviolet?style=for-the-badge" alt="Agent Skills standard">
   <img src="https://img.shields.io/badge/API_key-not_needed-green?style=for-the-badge" alt="No API key">
-  <img src="https://img.shields.io/badge/Python-stdlib_only-blue?style=for-the-badge" alt="Python standard library only">
+  <img src="https://img.shields.io/badge/Python_3.9+-nothing_else_to_install-blue?style=for-the-badge" alt="Python 3.9 or newer, nothing else to install">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License">
 </p>
 
@@ -23,6 +23,19 @@ An agent skill for Claude Code, Codex, GitHub Copilot CLI, Amp, OpenCode and any
 1. **Scan** your project with the tool you already use: `npm audit --json > audit.json`, `pip-audit -f json > audit.json`, Trivy, Grype or Dependabot.
 2. **Ask** your agent: *"/vuln-fix-first this audit"* or *"which of these CVEs should I fix first?"*
 3. **Get** each security bug labeled **ACT**, **ATTEND**, **TRACK\*** or **TRACK**, with a fix-by date and the packages to upgrade first.
+
+New words like CVE, scanner or agent? They are explained in plain words under [Words you'll see](#words-youll-see).
+
+### The 4 labels
+
+| Label | What to do |
+|---|---|
+| **ACT** | Fix now. Attackers are likely already using it against systems like yours. |
+| **ATTEND** | Fix sooner than your normal update schedule. |
+| **TRACK\*** | Fix in your normal update schedule, but keep an eye on it. The `*` means "watch closely". |
+| **TRACK** | Fix in your normal update schedule. |
+
+"Check for compromise" next to a deadline means the bug is already being attacked, so patching isn't enough: also look for signs the system was broken into before you patched.
 
 ## Choose where to start
 
@@ -75,7 +88,7 @@ You should see `Python 3.9` or higher. If you see an error:
 python scripts/vuln_fix_first.py CVE-2021-44228
 ```
 
-After a few seconds the first line starts with `ACT`, which means "fix now". The rest of that line explains why, and the [labels table](#example) below says what each label means. You need an internet connection, because the tool checks live public data.
+After a few seconds the first line starts with `ACT`, which means "fix now". The rest of that line explains why, and the [labels table](#the-4-labels) says what each label means. You need an internet connection, because the tool checks live public data.
 
 **6. Run it on your own project.** Save your scanner's report as a file (for example `audit.json`) and pass it with `-f`. Use the full location of the file, or drag the file into the terminal after `-f `:
 
@@ -86,18 +99,6 @@ python scripts/vuln_fix_first.py -f audit.json
 No scanner yet? For a JavaScript project, run `npm audit --json > audit.json` inside the project folder. For a Python project, install the scanner once with `python -m pip install pip-audit`, then run `pip-audit -f json > audit.json`.
 
 </details>
-
----
-
-## Why
-
-A security scanner checks the libraries your project uses and lists their known security bugs. A typical project gets 50 to 200 of them. Many are labeled "high" or "critical", so you either fix none, or you lose a week on the wrong ones.
-
-<p align="center"><img src="docs/assets/severity-vs-attack.png" alt="A big dragon with a 9.8 score sleeps locked in a cage, while a small lizard with a 4.8 score climbs through an open window under a red alarm"></p>
-
-Most of those bugs are never used in a real attack. The urgent ones are those attackers are using **right now**, or those with public attack code that hit something important. `vuln-fix-first` checks exactly that for every bug, using free public data from the US government's cybersecurity agency (CISA) and from FIRST, a global group of security teams. It takes seconds.
-
-**Real run:** `npm audit` on an old Express web app found 11 advisories, which mapped to 50 CVEs. Result: **0 ACT, 0 ATTEND, 4 TRACK\*** (all in `axios`, which has public attack code), and 46 that can wait for normal updates. Upgrading `axios` alone clears 23 of the 50. That took 5 seconds.
 
 ## Words you'll see
 
@@ -121,37 +122,66 @@ Most of those bugs are never used in a real attack. The urgent ones are those at
 | **CI** | "Continuous integration": a service, like GitHub Actions, that checks your project every time you push code. |
 | **SARIF** | A standard file format for security findings. GitHub reads it and shows each bug as an alert in the **Security** tab. |
 | **Exit code** | A number a command returns when it ends. `0` means "all fine"; anything else makes a CI step fail. |
+| **Mission** | How much the affected system matters to you: `low` (a test box), `medium` (the default) or `high` (production or sensitive data). |
+| **Ransomware** | Malware that locks or steals your files and demands payment. CISA marks the bugs ransomware gangs use. |
+| **BOD 26-04** | A CISA order that tells US federal agencies how fast to fix each kind of bug. The deadlines come from it. |
+| **Expected attacks** | The EPSS values added up. "3.35 of these 5 CVEs" means about 3 of the 5 bugs are expected to be attacked somewhere in the next 30 days. |
+
+---
+
+## Why
+
+A security scanner checks the libraries your project uses and lists their known security bugs. A typical project gets 50 to 200 of them. Many are labeled "high" or "critical", so you either fix none, or you lose a week on the wrong ones.
+
+<p align="center"><img src="docs/assets/severity-vs-attack.png" alt="A big dragon with a 9.8 score sleeps locked in a cage, while a small lizard with a 4.8 score climbs through an open window under a red alarm"></p>
+
+Most of those bugs are never used in a real attack. The urgent ones are those attackers are using **right now**, or those with public attack code that hit something important. `vuln-fix-first` checks exactly that for every bug, using free public data from the US government's cybersecurity agency (CISA) and from FIRST, a global group of security teams. It takes seconds.
+
+**Real run:** `npm audit` on an old Express web app found 11 advisories, which mapped to 50 CVEs. Result: **0 ACT, 0 ATTEND, 4 TRACK\*** (all in `axios`, which has public attack code), and 46 that can wait for normal updates. Upgrading `axios` alone clears 23 of the 50. That took 5 seconds.
 
 ## Example
 
+Five well-known bugs, on a system that matters (`--mission high`) and that the internet can reach (`--exposed`):
+
 ```
-$ python scripts/vuln_fix_first.py CVE-2024-3400 CVE-2021-44228 CVE-2023-4863 CVE-2022-24999 CVE-2024-21626 --mission high --exposed
-ACT     CVE-2024-3400    PAN-OS                   on KEV (actively exploited, used by ransomware); fix within 3 days + check for compromise (by 2026-10-22); EPSS 100.0% (top 0.1%); CVSS 3.1 10; automatable: yes, impact: total
-ACT     CVE-2021-44228   Apache Log4j2            on KEV (actively exploited, used by ransomware); fix within 3 days + check for compromise (by 2026-10-22); EPSS 100.0% (top 0.1%); CVSS 3.1 10; automatable: yes, impact: total
-ACT     CVE-2023-4863    Chrome                   on KEV (actively exploited); fix within 3 days + check for compromise (by 2026-10-22); EPSS 100.0% (top 0.1%); CVSS 3.1 8.8; automatable: no, impact: total
-ATTEND  CVE-2024-21626   runc                     exploitation: public poc; fix within 14 days (by 2026-11-02); EPSS 18.9% (top 2.7%); CVSS 3.1 8.6; automatable: no, impact: total
-ATTEND  CVE-2022-24999                            exploitation: public poc; fix within 14 days (by 2026-11-02); EPSS 15.6% (top 3.2%); CVSS 3.1 7.5; automatable: yes, impact: partial
+python scripts/vuln_fix_first.py CVE-2024-3400 CVE-2021-44228 CVE-2023-4863 CVE-2022-24999 CVE-2024-21626 --mission high --exposed
+```
+
+The output, with each line cut short here so it fits the page (the full lines are explained below):
+
+```
+ACT     CVE-2024-3400    PAN-OS          on KEV (actively exploited, used by ransomware); fix within 3 days ...
+ACT     CVE-2021-44228   Apache Log4j2   on KEV (actively exploited, used by ransomware); fix within 3 days ...
+ACT     CVE-2023-4863    Chrome          on KEV (actively exploited); fix within 3 days ...
+ATTEND  CVE-2024-21626   runc            exploitation: public poc; fix within 14 days ...
+ATTEND  CVE-2022-24999                   exploitation: public poc; fix within 14 days ...
 
 ACT: 3  ATTEND: 2  TRACK*: 0  TRACK: 0  (mission: high, exposed: yes)
 
 By package (one upgrade fixes all its CVEs):
-  ACT     PAN-OS                            1 CVE, fix within 3 days + check for compromise by 2026-10-22
-  ACT     Apache Log4j2                     1 CVE, fix within 3 days + check for compromise by 2026-10-22
-  ACT     Chrome                            1 CVE, fix within 3 days + check for compromise by 2026-10-22
-  ATTEND  runc                              1 CVE, fix within 14 days by 2026-11-02
-  ATTEND  (unknown product)                 1 CVE, fix within 14 days by 2026-11-02
+  ACT     PAN-OS             1 CVE, fix within 3 days + check for compromise by 2026-10-22
+  ACT     Apache Log4j2      1 CVE, fix within 3 days + check for compromise by 2026-10-22
+  ACT     Chrome             1 CVE, fix within 3 days + check for compromise by 2026-10-22
+  ATTEND  runc               1 CVE, fix within 14 days by 2026-11-02
+  ATTEND  (unknown product)  1 CVE, fix within 14 days by 2026-11-02
 
 Expected to see attacks in the next 30 days (sum of EPSS): 3.35 of these 5 CVEs; after fixing ACT + ATTEND: 0.00
 ```
 
-| Label | What to do |
-|---|---|
-| **ACT** | Fix now. Attackers are likely already using it against systems like yours. |
-| **ATTEND** | Fix sooner than your normal update schedule. |
-| **TRACK\*** | Fix in your normal update schedule, but keep an eye on it. |
-| **TRACK** | Fix in your normal update schedule. |
+**How to read one line.** This is the full first line, split into its parts:
 
-"Check for compromise" means the bug is already being attacked, so patching isn't enough: also look for signs the system was broken into before you patched.
+| Part | Example | Meaning |
+|---|---|---|
+| Label | `ACT` | What to do: see [the 4 labels](#the-4-labels). |
+| Bug | `CVE-2024-3400` | The bug's ID. |
+| Product | `PAN-OS` | Where the bug is. Blank when the CVE record doesn't say. |
+| Why | `on KEV (actively exploited, used by ransomware)` | Attackers, including ransomware gangs, use it right now. |
+| Deadline | `fix within 3 days + check for compromise (by 2026-10-22)` | Fix-by date. "Check for compromise": also look for signs of a break-in. |
+| Chance of attack | `EPSS 100.0% (top 0.1%)` | Almost certain to be attacked in the next 30 days; among the 0.1% riskiest of all CVEs. |
+| Severity | `CVSS 3.1 10` | How bad an attack would be, from 0 to 10 (CVSS version 3.1). |
+| CISA's rating | `automatable: yes, impact: total` | Attackers can automate it, and a successful attack gives full control. |
+
+The last line means: about 3 of these 5 bugs are expected to be attacked somewhere in the next 30 days, and about 0 once you fix the ACT and ATTEND ones.
 
 ## Install
 
@@ -195,6 +225,10 @@ python scripts/vuln_fix_first.py CVE-2024-3400 GHSA-jfh8-c2jp-5v3q --json
 vuln-fix-first -f audit.json --format sarif --fail-on ACT > results.sarif
 ```
 
+## Options
+
+The same options work for the script and the `vuln-fix-first` command. When you use the skill through an agent, the agent picks them for you.
+
 | Option | What it means |
 |---|---|
 | `-f FILE` | Read a scanner report from a file. Any format works. |
@@ -208,7 +242,7 @@ vuln-fix-first -f audit.json --format sarif --fail-on ACT > results.sarif
 | `--no-cache` | Download everything again, and don't read or save the cache. |
 | `--offline` | Use only the cache, with no network at all, and warn how old the data is. EPSS is not cached, so offline runs rank without it. |
 
-**Cache.** The script keeps the KEV list for 24 hours, each CVE record for 7 days, and each GHSA-to-CVE answer for 30 days, as JSON files in `~/.cache/vuln-fix-first/` (or `$XDG_CACHE_HOME/vuln-fix-first/` if that variable is set). A second run on the same report takes a fraction of a second. Delete the folder to clear it. Failed downloads are never cached, and busy or slow servers get 3 tries, 1 and 2 seconds apart.
+**Cache.** The script keeps the KEV list for 24 hours, each CVE record for 7 days, and each GHSA-to-CVE answer for 30 days, as JSON files in `~/.cache/vuln-fix-first/` on macOS and Linux, or `C:\Users\<you>\.cache\vuln-fix-first\` on Windows (`$XDG_CACHE_HOME/vuln-fix-first/` if that variable is set). A second run on the same report takes a fraction of a second. Delete the folder to clear it. Failed downloads are never cached, and busy or slow servers get 3 tries, 1 and 2 seconds apart.
 
 ## How it decides
 
